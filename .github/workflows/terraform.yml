@@ -1,8 +1,5 @@
-# storoku:ignore
-
 name: Terraform
-
-on:
+'on':
   workflow_call:
     inputs:
       env:
@@ -13,7 +10,7 @@ on:
         type: string
       network:
         required: false
-        default: "hot"
+        default: hot
         type: string
       did:
         required: true
@@ -53,11 +50,10 @@ on:
         required: false
       sentry-dsn:
         required: false
-
 concurrency:
-  group: ${{ github.workflow }}-${{ inputs.workspace }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.workspace }}-${{ github.event.pull_request.number
+    || github.ref }}
   cancel-in-progress: true
-
 env:
   AWS_ACCOUNT_ID: ${{ secrets.aws-account-id }}
   AWS_REGION: ${{ secrets.aws-region }}
@@ -67,7 +63,7 @@ env:
   TF_VAR_app: indexer
   TF_VAR_did: ${{ inputs.did }}
   TF_VAR_private_key: ${{ secrets.private-key }}
-  TF_VAR_domain_base: 
+  TF_VAR_domain_base: null
   TF_VAR_allowed_account_id: ${{ secrets.aws-account-id }}
   TF_VAR_region: ${{ secrets.region }}
   TF_VAR_cloudflare_zone_id: ${{ secrets.cloudflare-zone-id }}
@@ -80,61 +76,51 @@ env:
   HONEYCOMB_API_KEY: ${{ secrets.honeycomb-api-key }}
   SENTRY_DSN: ${{ secrets.sentry-dsn }}
   DEPLOY_ENV: ci
-
 permissions:
-  id-token: write # This is required for requesting the JWT
-  contents: read # This is required for actions/checkout
-
+  id-token: write
+  contents: read
 jobs:
   terraform:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+    - uses: actions/checkout@v3
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-region: ${{ env.AWS_REGION }}
+        role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/terraform-ci
+    - uses: opentofu/setup-opentofu@v1
+    - name: Tofu Init
+      run: 'touch .tfworkspace
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/terraform-ci
-        
-      - uses: opentofu/setup-opentofu@v1
+        make init
 
-      - name: Tofu Init
-        run: |
-          touch .tfworkspace
-          make init
-        working-directory: deploy
+        '
+      working-directory: deploy
+    - name: Terraform Plan
+      if: ${{ !inputs.apply }}
+      run: 'make plan
 
-      # just plan if !inputs.apply
-      - name: Terraform Plan
-        if: ${{ !inputs.apply }}
-        run: |
-          make plan
-        working-directory: deploy
+        '
+      working-directory: deploy
+    - name: Set up Docker Buildx
+      if: ${{ inputs.apply }}
+      uses: docker/setup-buildx-action@v3
+    - name: Build + Push Docker ECR
+      if: ${{ inputs.apply }}
+      run: 'make docker-push
 
-      # build and push docker image and apply if inputs.apply
-      - name: Set up Docker Buildx
-        if: ${{ inputs.apply }}
-        uses: docker/setup-buildx-action@v3
+        '
+      working-directory: deploy
+    - name: Terraform Apply
+      if: ${{ inputs.apply }}
+      run: 'make apply
 
-      - name: Build + Push Docker ECR
-        if: ${{ inputs.apply }}
-        run: |
-          make docker-push
-        working-directory: deploy
+        '
+      working-directory: deploy
+    - name: Wait For Deployment
+      if: ${{ inputs.apply }}
+      run: 'make wait-deploy
 
-      - name: Terraform Apply
-        if: ${{ inputs.apply }}
-        run: |
-          make apply
-        working-directory: deploy
-
-      - name: Wait For Deployment
-        if: ${{ inputs.apply }}
-        run: |
-          make wait-deploy
-        working-directory: deploy
-      
-      
-      
-          
+        '
+      working-directory: deploy
